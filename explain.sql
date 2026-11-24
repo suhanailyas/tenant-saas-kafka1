@@ -1,0 +1,2 @@
+EXPLAIN ANALYZE
+SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 50;

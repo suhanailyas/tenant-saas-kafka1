@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Multi-Tenant SaaS Orders</title>
+<style>
+ body{font-family:system-ui,sans-serif;max-width:900px;margin:30px auto;padding:0 16px;color:#222}
+ input,button,select{padding:8px;margin:4px 4px 4px 0;font-size:14px}
+ button{cursor:pointer}
+ .card{border:1px solid #ddd;border-radius:8px;padding:16px;margin:14px 0}
+ pre{background:#f5f5f5;padding:10px;border-radius:6px;overflow:auto;max-height:260px}
+ table{border-collapse:collapse;width:100%} td,th{border:1px solid #ddd;padding:6px;text-align:left}
+</style></head><body>
+<h2>Multi-Tenant Order Platform</h2>
+
+<div class="card" id="loginBox">
+  <h3>Login</h3>
+  <input id="email" placeholder="email" value="a@test.com">
+  <input id="password" type="password" placeholder="password" value="pass123">
+  <button onclick="login()">Login</button>
+  <button onclick="fill('a@test.com')">Tenant A</button>
+  <button onclick="fill('b@test.com')">Tenant B</button>
+  <div id="who"></div>
+</div>
+
+<div class="card">
+  <h3>Products</h3>
+  <button onclick="loadProducts()">Refresh products</button>
+  <table id="prodTable"></table>
+</div>
+
+<div class="card">
+  <h3>Place order (returns 202, Kafka event published)</h3>
+  Product ID <input id="pid" type="number" value="1" style="width:70px">
+  Qty <input id="qty" type="number" value="2" style="width:70px">
+  <button onclick="placeOrder()">Place Order</button>
+  <pre id="orderOut"></pre>
+</div>
+
+<div class="card">
+  <h3>Benchmark: N+1 vs JOIN</h3>
+  <button onclick="bench('slow')">Run N+1 (slow)</button>
+  <button onclick="bench('fast')">Run JOIN (fast)</button>
+  <button onclick="explain()">EXPLAIN ANALYZE</button>
+  <pre id="benchOut"></pre>
+</div>
+
+<script>
+let token = '';
+const $ = (id) => document.getElementById(id);
+const api = (p, o = {}) => fetch('/api/v1' + p, { ...o,
+  headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token } });
+
+function fill(e){ $('email').value = e; $('password').value = 'pass123'; }
+async function login(){
+  const r = await api('/login', { method:'POST', body: JSON.stringify({ email:$('email').value, password:$('password').value }) });
+  const d = await r.json();
+  if(!r.ok){ $('who').textContent = 'Login failed'; return; }
+  token = d.token; $('who').textContent = 'Logged in as tenant_id = ' + d.tenant_id;
+  loadProducts();
+}
+async function loadProducts(){
+  const rows = await (await api('/products')).json();
+  $('prodTable').innerHTML = '<tr><th>ID</th><th>Name</th><th>Stock</th></tr>' +
+    rows.map(p => `<tr><td>${p.id}</td><td>${p.name}</td><td>${p.stock}</td></tr>`).join('');
+}
+async function placeOrder(){
+  const r = await api('/orders', { method:'POST', body: JSON.stringify({ items:[{ product_id:+$('pid').value, qty:+$('qty').value }] }) });
+  $('orderOut').textContent = 'HTTP ' + r.status + '\n' + JSON.stringify(await r.json(), null, 2);
+  setTimeout(loadProducts, 2500);
+}
+async function bench(kind){
+  const d = await (await api('/orders/' + kind)).json();
+  $('benchOut').textContent = `method=${d.method}  queries=${d.queries}  time=${d.ms} ms  rows=${d.count}`;
+}
+async function explain(){ $('benchOut').textContent = await (await api('/explain')).text(); }
+</script></body></html>
